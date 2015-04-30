@@ -5,6 +5,7 @@ import breeze.linalg._
 import breeze.numerics.sigmoid
 import deep.learning.networks.Network
 
+//http://neuralnetworksanddeeplearning.com/chap1.html
 object BreezeTest {
 
   def main(args: Array[String]) {
