@@ -1,64 +1,138 @@
 package deep.learning.networks
 
-import breeze.linalg.{DenseMatrix, DenseVector}
+import breeze.linalg.{DenseVector, DenseMatrix}
 import breeze.numerics.sigmoid
 
+import scala.collection.mutable.MutableList
 import scala.util.Random
 
 /**
  * Created by inakov on 4/30/15.
  */
-class Network(networkDefinition: DenseVector[Int]) {
+class Network(networkDefinition: List[Int]) {
 
   val numberOfLayers: Int = networkDefinition.length
-  val definition: DenseVector[Int] = networkDefinition
+  val definition: List[Int] = networkDefinition
 
-  val biases: DenseVector[DenseVector[Double]] = {
-    for(y <- definition(1 to -1))
-      yield DenseVector.rand[Double](y)
-  }
+  var biases: MutableList[DenseVector[Double]] = MutableList[DenseVector[Double]]()
+  var weights: MutableList[DenseMatrix[Double]] = MutableList[DenseMatrix[Double]]()
 
-  val weights: DenseVector[DenseMatrix[Double]] = {
-    val values = for((x, y) <- definition(0 to -2).valuesIterator.zip(definition(1 to -1).valuesIterator).toArray)
-      yield DenseMatrix.rand[Double](x, y)
-    DenseVector[DenseMatrix[Double]](values)
-  }
+  for(y <- definition.drop(1).take(definition.length-1)) biases += DenseVector.rand[Double](y)
 
-  println(biases)
-  println(weights)
+  for((x, y) <- definition.take(definition.length-1).zip(definition.drop(1).take(definition.length-1))) weights += DenseMatrix.rand[Double](x, y)
+
+
+//  var biases: DenseVector[DenseVector[Double]] = {
+//    for(y <- definition(1 to -1))
+//      yield DenseVector.rand[Double](y)
+//  }
+//
+//  var weights: DenseVector[DenseMatrix[Double]] = {
+//    val values = for((x, y) <- definition(0 to -2).valuesIterator.zip(definition(1 to -1).valuesIterator).toArray)
+//      yield DenseMatrix.rand[Double](x, y)
+//    DenseVector[DenseMatrix[Double]](values)
+//  }
+
+//  println(biases)
+//  println(weights)
 
   def feedforward(a: DenseVector[Double]) ={
     var result = a;
-    for((b, w) <- biases.valuesIterator.zip(weights.valuesIterator))
+
+    for((b, w) <- biases.zip(weights))
       result = sigmoid((w * result) + b)
+
     result
   }
 
-  def SGD(trainingData: List, epochs: Int, miniBatchSize: Int, eta: Double, testData:List = None): Unit ={
+  def SGD(trainingData: Seq[(DenseVector[Double],DenseVector[Double])], epochs: Int, miniBatchSize: Int, eta: Double, testData:Seq[(DenseVector[Double],DenseVector[Double])] = Nil): Unit ={
     val trainingDataLength: Int = trainingData.length
     for(j <- 0 to epochs){
       Random.shuffle(trainingData)
-      val miniBatches: List[List] =
+      val miniBatches: List[Seq[(DenseVector[Double],DenseVector[Double])]] =
         for(k <- (0 to trainingDataLength by miniBatchSize).toList) yield trainingData.slice(k, k + miniBatchSize)
 
       for(miniBatch <- miniBatches)
         updateMiniBatch(miniBatch, eta)
 
-      if (testData != None)
+      if (testData != Nil)
         print("Epoch " + j + ": " + evaluate + " / " + testData.length)
       else
         print("Epoch "+ j + " complete")
     }
   }
 
-  def updateMiniBatch(miniBatch: List, eta: Double): Unit = ???
+  def updateMiniBatch(miniBatch: Seq[(DenseVector[Double],DenseVector[Double])], eta: Double): Unit = {
+    var nabla_b: MutableList[DenseVector[Double]] = for(b <- biases) yield DenseVector.zeros[Double](b.length)
+    var nabla_w: MutableList[DenseMatrix[Double]] = for(w <- weights) yield DenseMatrix.zeros[Double](w.rows, w.cols)
 
-  def backprop = ???
+    var delta_nabla_b: MutableList[DenseVector[Double]] = MutableList[DenseVector[Double]]()
+    var delta_nabla_w: MutableList[DenseMatrix[Double]] = MutableList[DenseMatrix[Double]]()
+
+    for((x, y) <- miniBatch){
+      val backpropResult = backprop(x, y)
+      delta_nabla_b = backpropResult._1
+      delta_nabla_w = backpropResult._2
+
+      nabla_b = for((nb, dnb) <- nabla_b.zip(delta_nabla_b)) yield nb+dnb
+      nabla_w = for((nw, dnw) <- nabla_w.zip(delta_nabla_w)) yield nw+dnw
+    }
+
+
+
+    weights = for((w, nw) <- weights.zip(nabla_w)) yield w-(eta/miniBatch.length)*nw
+    biases = for((b, nb) <- biases.zip(nabla_b)) yield b-(eta/miniBatch.length)*nb
+  }
+
+
+  def backprop(x: DenseVector[Double], y: DenseVector[Double]):(MutableList[DenseVector[Double]], MutableList[DenseMatrix[Double]]) ={
+    var nabla_b: MutableList[DenseVector[Double]] = for(b <- biases) yield DenseVector.zeros[Double](b.length)
+    var nabla_w: MutableList[DenseMatrix[Double]] = for(w <- weights) yield DenseMatrix.zeros[Double](w.rows, w.cols)
+
+    var activation: DenseVector[Double] = x
+    var activations: MutableList[DenseVector[Double]] = MutableList[DenseVector[Double]](x)
+    var zs: MutableList[DenseVector[Double]] = MutableList[DenseVector[Double]]()
+
+    //feedforward
+    for((b, w) <- biases.zip(weights)){
+      val z = (w * activation) + b
+      zs += z
+      activation = sigmoid(z)
+      activations += activation
+    }
+    //backward pass
+    var delta = costDerivative(activations.reverse.head, y) :* sigmoidPrime(zs.reverse.head)
+    nabla_b(nabla_b.length-1) = delta
+    //TODO: dot product check
+    nabla_w(nabla_w.length-1) = delta * activations(activations.length-2).t
+
+    val rzs = zs.reverse
+    val ractivations = activations.reverse
+
+    for(l <- 2 to numberOfLayers){
+      val z = rzs(l)
+      val spv = sigmoidPrime(z)
+      //delta = (weights[-l+1].transpose() dot delta) * spv
+      delta = weights(weights.length-l+1).t * delta :* spv
+      nabla_b(nabla_b.length-l) = delta
+      //np.dot(delta, activations[-l-1].transpose())
+      nabla_w(nabla_w.length-l) = delta * activations(activations.length-l-1).t
+    }
+
+    (nabla_b, nabla_w)
+  }
+
+
+
 
   def evaluate = ???
 
-  def costDerivative = ???
+  def costDerivative(outputActivations: DenseVector[Double], y: DenseVector[Double]): DenseVector[Double] = {
+    outputActivations-y
+  }
 
-  def sigmoid_prime = ???
+  def sigmoidPrime(z: DenseVector[Double]): DenseVector[Double]= {
+    sigmoid(z) :* (1-sigmoid(z))
+  }
 
 }
