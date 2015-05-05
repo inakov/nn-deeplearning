@@ -1,7 +1,8 @@
 package deep.learning.networks
 
-import breeze.linalg.{DenseVector, DenseMatrix}
-import breeze.numerics.sigmoid
+import breeze.linalg._
+import breeze.numerics._
+import breeze.math._
 
 import scala.collection.mutable.MutableList
 import scala.util.Random
@@ -21,20 +22,6 @@ class Network(networkDefinition: List[Int]) {
 
   for((x, y) <- definition.take(definition.length-1).zip(definition.drop(1).take(definition.length-1))) weights += DenseMatrix.rand[Double](x, y)
 
-
-//  var biases: DenseVector[DenseVector[Double]] = {
-//    for(y <- definition(1 to -1))
-//      yield DenseVector.rand[Double](y)
-//  }
-//
-//  var weights: DenseVector[DenseMatrix[Double]] = {
-//    val values = for((x, y) <- definition(0 to -2).valuesIterator.zip(definition(1 to -1).valuesIterator).toArray)
-//      yield DenseMatrix.rand[Double](x, y)
-//    DenseVector[DenseMatrix[Double]](values)
-//  }
-
-//  println(biases)
-//  println(weights)
 
   def feedforward(a: DenseVector[Double]) ={
     var result = a;
@@ -77,9 +64,6 @@ class Network(networkDefinition: List[Int]) {
       nabla_b = for((nb, dnb) <- nabla_b.zip(delta_nabla_b)) yield nb+dnb
       nabla_w = for((nw, dnw) <- nabla_w.zip(delta_nabla_w)) yield nw+dnw
     }
-
-
-
     weights = for((w, nw) <- weights.zip(nabla_w)) yield w-(eta/miniBatch.length)*nw
     biases = for((b, nb) <- biases.zip(nabla_b)) yield b-(eta/miniBatch.length)*nb
   }
@@ -95,27 +79,24 @@ class Network(networkDefinition: List[Int]) {
 
     //feedforward
     for((b, w) <- biases.zip(weights)){
-      val z = (w * activation) + b
+      val z = (w.t * activation) + b
       zs += z
       activation = sigmoid(z)
       activations += activation
     }
     //backward pass
     var delta = costDerivative(activations.reverse.head, y) :* sigmoidPrime(zs.reverse.head)
+
     nabla_b(nabla_b.length-1) = delta
     //TODO: dot product check
     nabla_w(nabla_w.length-1) = delta * activations(activations.length-2).t
+    println("nabla_w(nabla_w.length-1):" + nabla_w(nabla_w.length-1))
+    for(l <- 2 to numberOfLayers-1){
+      val z = zs(zs.length-l)
 
-    val rzs = zs.reverse
-    val ractivations = activations.reverse
-
-    for(l <- 2 to numberOfLayers){
-      val z = rzs(l)
-      val spv = sigmoidPrime(z)
-      //delta = (weights[-l+1].transpose() dot delta) * spv
-      delta = weights(weights.length-l+1).t * delta :* spv
+      println(delta.length)
+      delta = (weights(weights.length-1) * delta) :* sigmoidPrime(z)
       nabla_b(nabla_b.length-l) = delta
-      //np.dot(delta, activations[-l-1].transpose())
       nabla_w(nabla_w.length-l) = delta * activations(activations.length-l-1).t
     }
 
@@ -132,7 +113,7 @@ class Network(networkDefinition: List[Int]) {
   }
 
   def sigmoidPrime(z: DenseVector[Double]): DenseVector[Double]= {
-    sigmoid(z) :* (1-sigmoid(z))
+    (sigmoid(z):*(1.0-sigmoid(z)))
   }
 
 }
