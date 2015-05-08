@@ -3,6 +3,7 @@ package deep.learning.networks
 import breeze.linalg._
 import breeze.numerics._
 import breeze.math._
+import breeze.stats.distributions.Rand
 
 import scala.collection.mutable.MutableList
 import scala.util.Random
@@ -18,32 +19,31 @@ class Network(networkDefinition: List[Int]) {
   var biases: MutableList[DenseVector[Double]] = MutableList[DenseVector[Double]]()
   var weights: MutableList[DenseMatrix[Double]] = MutableList[DenseMatrix[Double]]()
 
-  for(y <- definition.drop(1).take(definition.length-1)) biases += DenseVector.rand[Double](y)
+  for(y <- definition.drop(1).take(definition.length-1)) biases += DenseVector.rand[Double](y, rand = breeze.stats.distributions.Gaussian(0,1))
 
-  for((x, y) <- definition.take(definition.length-1).zip(definition.drop(1).take(definition.length-1))) weights += DenseMatrix.rand[Double](x, y)
+  for((x, y) <- definition.take(definition.length-1).zip(definition.drop(1).take(definition.length-1))) weights += DenseMatrix.rand[Double](x, y, rand = breeze.stats.distributions.Gaussian(0,1))
 
 
   def feedforward(a: DenseVector[Double]) ={
     var result = a;
 
     for((b, w) <- biases.zip(weights))
-      result = sigmoid((w * result) + b)
-
+      result = sigmoid((w.t * result) + b)
     result
   }
 
   def SGD(trainingData: Seq[(DenseVector[Double],DenseVector[Double])], epochs: Int, miniBatchSize: Int, eta: Double, testData:Seq[(DenseVector[Double],DenseVector[Double])] = Nil): Unit ={
     val trainingDataLength: Int = trainingData.length
-    for(j <- 0 to epochs){
+    for(j <- 0 until epochs){
       Random.shuffle(trainingData)
       val miniBatches: List[Seq[(DenseVector[Double],DenseVector[Double])]] =
-        for(k <- (0 to trainingDataLength by miniBatchSize).toList) yield trainingData.slice(k, k + miniBatchSize)
+        for(k <- (0 until trainingDataLength by miniBatchSize).toList) yield trainingData.slice(k, k + miniBatchSize)
 
       for(miniBatch <- miniBatches)
         updateMiniBatch(miniBatch, eta)
 
       if (testData != Nil)
-        print("Epoch " + j + ": " + evaluate + " / " + testData.length)
+        println("Epoch " + j + ": " + evaluate(testData) + "/" + testData.length)
       else
         print("Epoch "+ j + " complete")
     }
@@ -86,16 +86,12 @@ class Network(networkDefinition: List[Int]) {
     }
     //backward pass
     var delta = costDerivative(activations.reverse.head, y) :* sigmoidPrime(zs.reverse.head)
-
     nabla_b(nabla_b.length-1) = delta
-    //TODO: dot product check
     nabla_w(nabla_w.length-1) = delta * activations(activations.length-2).t
-    println("nabla_w(nabla_w.length-1):" + nabla_w(nabla_w.length-1))
-    for(l <- 2 to numberOfLayers-1){
+    for(l <- 2 until numberOfLayers){
       val z = zs(zs.length-l)
-
-      println(delta.length)
-      delta = (weights(weights.length-1) * delta) :* sigmoidPrime(z)
+      val spv = sigmoidPrime(z);
+      delta = (weights(weights.length-1) * delta) :* spv
       nabla_b(nabla_b.length-l) = delta
       nabla_w(nabla_w.length-l) = delta * activations(activations.length-l-1).t
     }
@@ -103,10 +99,15 @@ class Network(networkDefinition: List[Int]) {
     (nabla_b, nabla_w)
   }
 
+  def evaluate(testData: Seq[(DenseVector[Double],DenseVector[Double])]) = {
 
-
-
-  def evaluate = ???
+    val testResult:Seq[(Int, DenseVector[Double])] = for((x,y) <- testData) yield (argmax(feedforward(x)), y)
+    var result = 0;
+    for((x,y) <- testResult; if y(x) == 1.0){
+      result+=1;
+    }
+    result
+  }
 
   def costDerivative(outputActivations: DenseVector[Double], y: DenseVector[Double]): DenseVector[Double] = {
     outputActivations-y
